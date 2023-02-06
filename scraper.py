@@ -2,7 +2,8 @@ import re
 from urllib.parse import urlparse
 from urllib.parse import urldefrag
 from bs4 import BeautifulSoup
-import csv
+from utils import get_urlhash
+import shelve
 
 pages = set()
 
@@ -12,12 +13,12 @@ def filter_to_allow_subdomains(parsed):
                 re.match(r"department/information_computer_sciences/.*", parsed.path.lower())
             )
 
-def scraper(url, resp):
-    links = extract_next_links(url, resp)
+def scraper(url, resp,content_db):
+    links = extract_next_links(url, resp,content_db)
     # print(links)
     return [link for link in links if is_valid(link)]
 
-def extract_content(soup):
+def extract_content(url,soup):
     ex_data = {}
     title = soup.title
     for script in soup(["script", "style"]): # Remove script, style 
@@ -28,17 +29,17 @@ def extract_content(soup):
     chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
     text = [chunk for chunk in chunks if chunk] # make data to list 
 
-    ex_data['title'] = title
-    ex_data['text'] = text 
+    ex_data['title'] = str(title)
+    ex_data['text'] = text
+    ex_data['url'] = url
     return ex_data 
 
-def save_contents(content):
-    csv_file = open('scrapped.csv', 'a', encoding='utf-8', newline='')
-    writer = csv.writer(csv_file)
-    writer.writerow(content.values())
-    csv_file.close()
+def save_contents(content_db, contents):
+    urlhash = get_urlhash(contents['url'])
+    content_db[urlhash] = contents
+    content_db.sync()
 
-def extract_next_links(url, resp):
+def extract_next_links(url, resp, content_db):
     # Implementation required.
     # url: the URL that was used to get the page
     # resp.url: the actual url of the page
@@ -55,9 +56,8 @@ def extract_next_links(url, resp):
     new_links = list()
     if resp.status == 200:
         soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
-        contents = extract_content(soup)
-        contents['url'] = url
-        save_contents(contents)
+        contents = extract_content(url, soup)
+        save_contents(content_db,contents)
         for link in soup.find_all('a'):
             extracted_link = link.get('href')
             if extracted_link:
